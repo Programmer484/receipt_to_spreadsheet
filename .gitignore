@@ -1,0 +1,7 @@
+venv/
+.env
+*.xlsx
+__pycache__/
+*.pyc
+receipt_images/
+
