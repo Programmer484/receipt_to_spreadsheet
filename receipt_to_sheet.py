@@ -13,7 +13,7 @@ from openpyxl.worksheet.worksheet import Worksheet
 
 load_dotenv()
 
-HEADERS = ["Date", "Payee", "Description", "Entertainment", "GST", "Total", "Notes"]
+HEADERS = ["Date", "Payee", "Description", "Entertainment", "GST", "Total"]
 SHEET_NAME = "Receipts"
 
 # Excel-friendly formats
@@ -77,7 +77,6 @@ def append_receipt_row(
     description: Optional[str],
     gst: Optional[Decimal],
     total: Optional[Decimal],
-    notes: Optional[str],
 ) -> None:
     """
     Appends a single row in the required column order.
@@ -103,9 +102,6 @@ def append_receipt_row(
     c_total = ws.cell(row=next_row, column=6, value=float(total) if total is not None else None)
     c_total.number_format = CURRENCY_FMT
 
-    # Notes
-    ws.cell(row=next_row, column=7, value=(notes or "").strip() or None)
-
 
 def extract_receipt_fields(client: OpenAI, image_path: str, model: str) -> Dict[str, Any]:
     """
@@ -119,60 +115,42 @@ def extract_receipt_fields(client: OpenAI, image_path: str, model: str) -> Dict[
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            # ISO keeps parsing simple; we format for Excel later
             "date_iso": {
                 "type": ["string", "null"],
-                "description": "Receipt date in ISO 8601 format YYYY-MM-DD (from the receipt). Null if not visible."
+                "description": "Receipt date in YYYY-MM-DD format. Null if not visible."
             },
             "payee": {
                 "type": ["string", "null"],
-                "description": "Store/vendor name as shown on the receipt."
+                "description": "Store/vendor name from receipt."
             },
             "description": {
-                "type": ["string", "null"],
-                "description": "Short expense description/category (e.g., Meal, Groceries, Taxi)."
+                "type": "string",
+                "enum": ["Meal", "Treat"],
+                "description": "Meal: food for immediate consumption (dine-in/takeout). Treat: all other purchases."
             },
             "gst": {
                 "type": ["number", "null"],
-                "description": "GST amount exactly as shown on the receipt (do not compute). Use 0 only if explicitly shown as 0."
+                "description": "GST amount from receipt (do not calculate). Null if not shown."
             },
             "total": {
                 "type": ["number", "null"],
-                "description": "Total paid INCLUDING tip (if tip is present). Use the final charged/paid amount."
-            },
-            "notes": {
-                "type": ["string", "null"],
-                "description": "If any field is uncertain/ambiguous/missing, explain briefly here."
+                "description": "Total amount paid, including tip if present."
             },
         },
-        "required": ["date_iso", "payee", "description", "gst", "total", "notes"],
+        "required": ["date_iso", "payee", "description", "gst", "total"],
     }
 
-    # Responses API supports image + text inputs. (docs)
     resp = client.responses.create(
         model=model,
         input=[
             {
                 "role": "system",
-                "content": (
-                    "You are a meticulous bookkeeping assistant. "
-                    "Extract receipt fields exactly from the receipt. "
-                    "Do not guess missing values. If uncertain, put details in notes."
-                ),
+                "content": "Extract receipt data accurately. Use exact values from receipt."
             },
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "input_text",
-                        "text": (
-                            "Extract fields for my expense spreadsheet.\n"
-                            "- Total MUST include tip (if any).\n"
-                            "- GST must come straight from the receipt (do not compute).\n"
-                            "- Payee can include the store name.\n"
-                            "Return only the structured JSON."
-                        ),
-                    },
+                    {"type": "input_text", "text": "Extract all fields from this receipt."},
                     {"type": "input_image", "image_url": data_url},
                 ],
             },
@@ -196,7 +174,6 @@ def extract_receipt_fields(client: OpenAI, image_path: str, model: str) -> Dict[
             "description": None,
             "gst": None,
             "total": None,
-            "notes": "Model returned empty output_text (possible refusal or unexpected response).",
         }
 
     try:
@@ -208,71 +185,73 @@ def extract_receipt_fields(client: OpenAI, image_path: str, model: str) -> Dict[
             "description": None,
             "gst": None,
             "total": None,
-            "notes": f"Failed to parse JSON. Raw output_text: {raw[:500]}",
         }
 
 
-def get_first_image(folder: str = "receipt_images") -> str:
-    """Get the first image file from the specified folder."""
+def get_images(folder: str = "receipt_images", limit: Optional[int] = None) -> list[str]:
+    """Get image files from the specified folder."""
     if not os.path.exists(folder):
         raise FileNotFoundError(f"Folder '{folder}' not found.")
     
     image_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
-    for filename in sorted(os.listdir(folder)):
+    images = []
+    for filename in sorted(os.listdir(folder), reverse=True):
         if os.path.splitext(filename.lower())[1] in image_exts:
-            return os.path.join(folder, filename)
+            images.append(os.path.join(folder, filename))
+            if limit and len(images) >= limit:
+                break
     
-    raise FileNotFoundError(f"No image files found in '{folder}'.")
+    if not images:
+        raise FileNotFoundError(f"No image files found in '{folder}'.")
+    
+    return images
 
 
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Extract receipt fields from one image and append to an .xlsx sheet.")
-    parser.add_argument("image_path", nargs="?", help="Path to receipt image (jpg/png/webp). If omitted, uses first image from receipt_images/.")
+    parser = argparse.ArgumentParser(description="Extract receipt fields from images and append to an .xlsx sheet.")
+    parser.add_argument("-n", "--num", type=int, default=0, help="Number of images to process from receipt_images/ (default: 1, use 0 for all).")
     parser.add_argument("--xlsx", default="receipts.xlsx", help="Output workbook path (default: receipts.xlsx).")
-    parser.add_argument("--model", default=os.getenv("RECEIPT_MODEL", "gpt-4.1"),
-                        help="OpenAI model (default: gpt-4.1 or env RECEIPT_MODEL).")
+    parser.add_argument("--model", default=os.getenv("RECEIPT_MODEL", "gpt-4o-mini"))
     args = parser.parse_args()
 
-    # Use provided path or get first image from receipt_images/
-    image_path = args.image_path or get_first_image()
-    print(f"Processing: {image_path}")
+    # Get images from receipt_images/
+    limit = None if args.num == 0 else args.num
+    images = get_images(limit=limit)
+    
+    print(f"Processing {len(images)} image(s)...")
 
     client = OpenAI()
-
-    extracted = extract_receipt_fields(client, image_path, args.model)
-
-    # Parse/normalize for spreadsheet
-    receipt_date = None
-    if extracted.get("date_iso"):
-        try:
-            receipt_date = datetime.strptime(extracted["date_iso"], "%Y-%m-%d").date()
-        except ValueError:
-            extracted["notes"] = (extracted.get("notes") or "") + f" | Bad date_iso: {extracted['date_iso']}"
-
-    gst = safe_decimal(extracted.get("gst"))
-    total = safe_decimal(extracted.get("total"))
-
-    # Quick sanity check: GST > Total is almost certainly wrong
-    notes = extracted.get("notes")
-    if gst is not None and total is not None and gst > total:
-        notes = (notes or "")
-        notes += " | Sanity check: GST > Total; please verify receipt."
-
     wb, ws = ensure_sheet_and_headers(args.xlsx)
-    append_receipt_row(
-        ws=ws,
-        receipt_date=receipt_date,
-        payee=extracted.get("payee"),
-        description=extracted.get("description"),
-        gst=gst,
-        total=total,
-        notes=notes,
-    )
-    wb.save(args.xlsx)
 
-    print(f"Appended 1 row to {args.xlsx} ({SHEET_NAME}).")
+    for i, image_path in enumerate(images, 1):
+        print(f"[{i}/{len(images)}] Processing: {image_path}")
+        
+        extracted = extract_receipt_fields(client, image_path, args.model)
+
+        # Parse/normalize for spreadsheet
+        receipt_date = None
+        if extracted.get("date_iso"):
+            try:
+                receipt_date = datetime.strptime(extracted["date_iso"], "%Y-%m-%d").date()
+            except ValueError:
+                pass  # Leave as None if date parsing fails
+
+        gst = safe_decimal(extracted.get("gst"))
+        total = safe_decimal(extracted.get("total"))
+
+        append_receipt_row(
+            ws=ws,
+            receipt_date=receipt_date,
+            payee=extracted.get("payee"),
+            description=extracted.get("description"),
+            gst=gst,
+            total=total,
+        )
+
+    wb.save(args.xlsx)
+    print(f"\nAppended {len(images)} row(s) to {args.xlsx} ({SHEET_NAME}).")
 
 
 if __name__ == "__main__":
