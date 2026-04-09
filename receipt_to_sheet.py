@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import json
 import base64
@@ -25,6 +26,32 @@ def file_to_base64(file_path: str) -> str:
     """Read a file and return its base64-encoded content."""
     with open(file_path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
+
+
+def parse_date_from_filename(filename: str) -> Optional[str]:
+    """
+    Extract a date from the filename.
+    Supports patterns like:
+      '1705 2025-02-24 ...'  -> '2025-02-24'
+      '1705 2025-05 ...'     -> '2025-05-01'
+      '1707-2025-05 ...'     -> '2025-05-01'
+    Returns ISO date string (YYYY-MM-DD) or None.
+    """
+    # Try full date: YYYY-MM-DD
+    m = re.search(r'(\d{4})-(\d{1,2})-(\d{1,2})', filename)
+    if m:
+        year, month, day = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if 2000 <= year <= 2099 and 1 <= month <= 12 and 1 <= day <= 31:
+            return f"{year}-{month:02d}-{day:02d}"
+
+    # Try year-month only: YYYY-MM (but not followed by another digit)
+    m = re.search(r'(\d{4})-(\d{1,2})(?!\d)', filename)
+    if m:
+        year, month = int(m.group(1)), int(m.group(2))
+        if 2000 <= year <= 2099 and 1 <= month <= 12:
+            return f"{year}-{month:02d}-01"
+
+    return None
 
 
 def safe_decimal(x: Any) -> Optional[Decimal]:
@@ -274,7 +301,7 @@ def main():
             duration = time.time() - start_time
             print(f"    Done in {duration:.2f}s")
 
-            append_row(ws, extracted, FIELD_MAPPING, DATE_FMT, CURRENCY_FMT)
+            append_row(ws, {**extracted, "date_from_filename": parse_date_from_filename(filename)}, FIELD_MAPPING, DATE_FMT, CURRENCY_FMT)
             total_processed += 1
 
     # Only save if we actually have sheets to save (at least one must be visible)

@@ -8,7 +8,7 @@ CURRENCY_FMT = '"$"#,##0.00'
 # Field mapping: column_name -> (json_key, excel_column_index, format_type)
 # format_type: "date", "currency", "text", or None for blank
 FIELD_MAPPING = [
-    ("Date", "date_iso", 1, "date"),
+    ("Date", "date_from_filename", 1, "date"),
     ("Description", "description", 2, "text"),
     ("Amount", "amount", 3, "currency"),
 ]
@@ -18,10 +18,6 @@ SCHEMA = {
     "type": "object",
     "additionalProperties": False,
     "properties": {
-        "date_iso": {
-            "type": ["string", "null"],
-            "description": "Receipt date in YYYY-MM-DD format. The year is always 2025. Null if not visible."
-        },
         "description": {
             "type": ["string", "null"],
             "description": "Top 3 most expensive items from receipt, comma-separated. Add 'etc' if more than 3 items. Null if not visible."
@@ -31,12 +27,12 @@ SCHEMA = {
             "description": "Total amount paid. Null if not visible."
         },
     },
-    "required": ["date_iso", "description", "amount"],
+    "required": ["description", "amount"],
 }
 
 # Prompts
-SYSTEM_PROMPT = "Extract receipt data accurately. Use exact values from receipt. Note: The receipt year is always 2025."
-USER_PROMPT = "Extract date, the top 3 most expensive items, and total amount from this receipt. Assume the year is 2025 if only month and day are visible."
+SYSTEM_PROMPT = "Extract receipt data accurately. Use exact values from receipt."
+USER_PROMPT = "Extract the top 3 most expensive items and total amount from this receipt."
 
 # Sheet configurations: folder_path -> sheet_name
 SHEET_CONFIGS = [
