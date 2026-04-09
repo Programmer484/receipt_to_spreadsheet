@@ -20,7 +20,7 @@ SCHEMA = {
     "properties": {
         "date_iso": {
             "type": ["string", "null"],
-            "description": "Receipt date in YYYY-MM-DD format. Null if not visible."
+            "description": "Receipt date in YYYY-MM-DD format. The year is always 2025. Null if not visible."
         },
         "description": {
             "type": ["string", "null"],
@@ -35,8 +35,8 @@ SCHEMA = {
 }
 
 # Prompts
-SYSTEM_PROMPT = "Extract receipt data accurately. Use exact values from receipt."
-USER_PROMPT = "Extract date, the top 3 most expensive items, and total amount from this receipt."
+SYSTEM_PROMPT = "Extract receipt data accurately. Use exact values from receipt. Note: The receipt year is always 2025."
+USER_PROMPT = "Extract date, the top 3 most expensive items, and total amount from this receipt. Assume the year is 2025 if only month and day are visible."
 
 # Sheet configurations: folder_path -> sheet_name
 SHEET_CONFIGS = [

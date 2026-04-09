@@ -1,4 +1,5 @@
 import os
+import time
 import json
 import base64
 import mimetypes
@@ -216,14 +217,15 @@ def main():
         configs = SHEET_CONFIGS
 
     # Open/create workbook once
+    is_new_wb = False
     if os.path.exists(args.xlsx):
         wb = load_workbook(args.xlsx)
     else:
         wb = Workbook()
-        if "Sheet" in wb.sheetnames:
-            wb.remove(wb["Sheet"])
+        is_new_wb = True
 
     total_processed = 0
+    sheets_created = 0
 
     for config in configs:
         folder = config["folder"]
@@ -242,6 +244,11 @@ def main():
             ws = wb[sheet_name]
         else:
             ws = wb.create_sheet(sheet_name)
+            sheets_created += 1
+            # If this is a new workbook, remove the default 'Sheet' now that we have a real one
+            if is_new_wb and "Sheet" in wb.sheetnames:
+                wb.remove(wb["Sheet"])
+                is_new_wb = False
 
         # Write headers
         existing = [ws.cell(row=1, column=i + 1).value for i in range(len(HEADERS))]
@@ -255,6 +262,7 @@ def main():
 
             user_prompt = USER_PROMPT
 
+            start_time = time.time()
             extracted = extract_receipt_fields(
                 client,
                 args.model,
@@ -263,12 +271,21 @@ def main():
                 user_prompt,
                 file_path,
             )
+            duration = time.time() - start_time
+            print(f"    Done in {duration:.2f}s")
 
             append_row(ws, extracted, FIELD_MAPPING, DATE_FMT, CURRENCY_FMT)
             total_processed += 1
 
-    wb.save(args.xlsx)
-    print(f"\n✓ Total: {total_processed} receipt(s) processed across {len(configs)} sheet(s) in {args.xlsx}")
+    # Only save if we actually have sheets to save (at least one must be visible)
+    try:
+        if len(wb.sheetnames) > 0:
+            wb.save(args.xlsx)
+            print(f"\n✓ Total: {total_processed} receipt(s) processed across {len(configs)} sheet(s) in {args.xlsx}")
+        else:
+            print("\n⚠ No sheets were created because no files were found. Workbook not saved.")
+    except (IndexError, Exception) as e:
+        print(f"\n⚠ Error: Could not save workbook: {e}")
 
 
 if __name__ == "__main__":
