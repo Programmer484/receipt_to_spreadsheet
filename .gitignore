@@ -3,5 +3,7 @@ venv/
 *.xlsx
 __pycache__/
 *.pyc
-receipt_images/
 
+819/
+1705-07/
+1712/

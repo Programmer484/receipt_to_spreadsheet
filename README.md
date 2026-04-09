@@ -1,6 +1,6 @@
 # Receipt to Spreadsheet
 
-Extracts receipt data from images using OpenAI Vision and outputs to Excel.
+Extracts receipt data from images and PDFs using Claude (Anthropic) and outputs to Excel.
 
 ## Setup
 
@@ -12,25 +12,29 @@ pip install -r requirements.txt
 
 Create `.env`:
 ```
-OPENAI_API_KEY=your_key
-RECEIPT_MODEL=gpt-4o-mini
+ANTHROPIC_API_KEY=your_key
+RECEIPT_MODEL=claude-sonnet-4-5-20250514
 ```
 
 ## Usage
 
 ```bash
-python receipt_to_sheet.py        # Process all images
-python receipt_to_sheet.py -n 10  # Process 10 newest images
+python receipt_to_sheet.py        # Process all files
+python receipt_to_sheet.py -n 10  # Process 10 newest files
 ```
 
-Images are read from `receipt_images/` (newest first) and appended to `receipts.xlsx`.
+Files are read from the folder(s) configured in `config.py` (newest first) and appended to `receipts.xlsx`.
 
-## Output Fields
+## How It Works
+
+- **Images** (`.jpg`, `.png`, `.webp`, `.gif`) are sent to Claude Vision as base64
+- **PDFs** are sent natively to Claude — no conversion or text extraction needed
+
+Claude returns structured JSON via constrained decoding, which is written directly into the spreadsheet.
+
+## Output Fields (default config)
 
 - Date
-- Payee
-- Description (Meal/Treat)
-- Entertainment (blank)
-- GST
-- Total
-
+- Description
+- House Number
+- Amount
